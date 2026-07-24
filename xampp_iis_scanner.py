@@ -80,6 +80,9 @@ PREVIEW_COLUMNS = [
     "Full Path",
 ]
 
+# Frame animasi spinner (loading indicator) yang ditampilkan saat scan berjalan
+SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
 
 # =========================================================================
 # LOGIKA SCANNER (murni logic, tidak menyentuh GUI, supaya mudah diuji)
@@ -260,8 +263,8 @@ class ScannerApp(ctk.CTk):
         ctk.set_default_color_theme("blue")
 
         self.title(APP_TITLE)
-        self.geometry(WINDOW_SIZE)
-        self.minsize(1100, 700)
+        self.minsize(900, 560)
+        self._apply_adaptive_geometry()
 
         # State internal
         self.path_rows = {}          # row_id -> {"var", "path", "label", "removable", "frame"}
@@ -269,14 +272,42 @@ class ScannerApp(ctk.CTk):
         self.scan_results = []       # list of dict hasil scan (setelah selesai)
         self.log_queue = queue.Queue()
         self.is_scanning = False
+        self._spinner_index = 0
 
         self._build_header()
+
+        # Container scrollable utama: memastikan SEMUA elemen (termasuk
+        # tombol export di paling bawah) tetap bisa dijangkau lewat scroll,
+        # walaupun resolusi layar/jendela lebih kecil dari kontennya.
+        self.main_scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.main_scroll.pack(fill="both", expand=True, padx=0, pady=0)
+
         self._build_control_panel()
         self._build_progress_zone()
         self._build_result_zone()
         self._build_action_zone()
 
         self._populate_default_paths()
+
+    def _apply_adaptive_geometry(self):
+        """Menyesuaikan ukuran & posisi window dengan resolusi layar yang
+        tersedia, supaya di layar kecil (mis. remote desktop/VM) semua
+        bagian aplikasi -- termasuk tombol export di bagian paling bawah --
+        tetap muat dan tidak tersembunyi di luar area layar."""
+        self.update_idletasks()
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+
+        default_w, default_h = 1320, 860
+        margin = 80
+
+        win_w = min(default_w, max(900, screen_w - margin))
+        win_h = min(default_h, max(560, screen_h - margin))
+
+        pos_x = max(0, (screen_w - win_w) // 2)
+        pos_y = max(0, (screen_h - win_h) // 2)
+
+        self.geometry(f"{win_w}x{win_h}+{pos_x}+{pos_y}")
 
     # ---------------------------------------------------------------
     # BUILD: HEADER
@@ -298,7 +329,7 @@ class ScannerApp(ctk.CTk):
     # BUILD: CONTROL PANEL (checklist path + tombol scan)
     # ---------------------------------------------------------------
     def _build_control_panel(self):
-        panel = ctk.CTkFrame(self)
+        panel = ctk.CTkFrame(self.main_scroll)
         panel.pack(fill="x", padx=20, pady=(10, 10))
 
         label_font = ctk.CTkFont(family="Segoe UI", size=14, weight="bold")
@@ -390,11 +421,15 @@ class ScannerApp(ctk.CTk):
     # BUILD: PROGRESS ZONE (progress bar + log console)
     # ---------------------------------------------------------------
     def _build_progress_zone(self):
-        zone = ctk.CTkFrame(self)
+        zone = ctk.CTkFrame(self.main_scroll)
         zone.pack(fill="x", padx=20, pady=(0, 10))
 
         top_row = ctk.CTkFrame(zone, fg_color="transparent")
         top_row.pack(fill="x", padx=15, pady=(12, 6))
+
+        self.spinner_label = ctk.CTkLabel(
+            top_row, text="", width=22, font=ctk.CTkFont(family="Segoe UI", size=15))
+        self.spinner_label.pack(side="left", padx=(0, 8))
 
         self.status_label = ctk.CTkLabel(top_row, text="Siap untuk memindai.", anchor="w")
         self.status_label.pack(side="left")
@@ -418,15 +453,15 @@ class ScannerApp(ctk.CTk):
     # BUILD: RESULT ZONE (Treeview preview)
     # ---------------------------------------------------------------
     def _build_result_zone(self):
-        zone = ctk.CTkFrame(self)
-        zone.pack(fill="both", expand=True, padx=20, pady=(0, 10))
+        zone = ctk.CTkFrame(self.main_scroll)
+        zone.pack(fill="both", padx=20, pady=(0, 10))
 
         label_font = ctk.CTkFont(family="Segoe UI", size=14, weight="bold")
         ctk.CTkLabel(zone, text="Hasil Scan (Preview)", font=label_font, anchor="w").pack(
             fill="x", padx=15, pady=(12, 6))
 
         table_frame = ctk.CTkFrame(zone, fg_color="transparent")
-        table_frame.pack(fill="both", expand=True, padx=15, pady=(0, 15))
+        table_frame.pack(fill="both", padx=15, pady=(0, 15))
 
         style = ttk.Style()
         style.theme_use("clam")
@@ -441,7 +476,7 @@ class ScannerApp(ctk.CTk):
         style.map("Custom.Treeview.Heading", background=[("active", "#274b8a")])
 
         self.tree = ttk.Treeview(table_frame, columns=PREVIEW_COLUMNS, show="headings",
-                                  style="Custom.Treeview")
+                                  style="Custom.Treeview", height=12)
         col_widths = {
             "No": 45, "Nama Project": 180, "Sumber Server": 200,
             "Framework/Tech": 140, "Ukuran": 90, "Terakhir Dimodifikasi": 140,
@@ -495,7 +530,7 @@ class ScannerApp(ctk.CTk):
     # BUILD: ACTION ZONE (tombol export)
     # ---------------------------------------------------------------
     def _build_action_zone(self):
-        zone = ctk.CTkFrame(self, fg_color="transparent")
+        zone = ctk.CTkFrame(self.main_scroll, fg_color="transparent")
         zone.pack(fill="x", padx=20, pady=(0, 16))
 
         self.btn_export = ctk.CTkButton(
@@ -529,11 +564,28 @@ class ScannerApp(ctk.CTk):
         self.is_scanning = True
         self.btn_scan.configure(state="disabled", text="Sedang Memindai...")
         self.btn_export.configure(state="disabled")
-        self.status_label.configure(text="Memindai direktori, mohon tunggu...")
+        self.status_label.configure(text="Menghitung jumlah folder project...")
+
+        # Progress bar dibuat "indeterminate" (animasi bolak-balik) dulu
+        # selama tahap menghitung jumlah project, karena totalnya belum
+        # diketahui di awal.
+        self.progress_bar.configure(mode="indeterminate")
+        self.progress_bar.start()
+        self._spinner_index = 0
+        self._animate_spinner()
 
         thread = threading.Thread(target=self._scan_worker, args=(checked_paths,), daemon=True)
         thread.start()
         self.after(80, self._process_queue)
+
+    def _animate_spinner(self):
+        """Animasi loading (spinner) berputar selama proses scan berjalan."""
+        if self.is_scanning:
+            self.spinner_label.configure(text=SPINNER_FRAMES[self._spinner_index % len(SPINNER_FRAMES)])
+            self._spinner_index += 1
+            self.after(90, self._animate_spinner)
+        else:
+            self.spinner_label.configure(text="")
 
     def _scan_worker(self, checked_paths):
         start_time = time.time()
@@ -560,11 +612,13 @@ class ScannerApp(ctk.CTk):
 
             total = len(all_projects)
             self.log_queue.put(("log", f"Ditemukan {total} folder project. Memulai analisis..."))
+            self.log_queue.put(("mode_determinate", None))
 
             for idx, (source_label, entry) in enumerate(all_projects, start=1):
                 project_path = entry.path
                 project_name = entry.name
                 self.log_queue.put(("log", f"[{idx}/{total}] Memindai: {project_name}"))
+                self.log_queue.put(("status", f"Memindai {idx}/{total}: {project_name}"))
                 try:
                     tech = detect_tech_stack(project_path)
                     size_bytes, file_count, _folder_count, max_mtime = scan_folder_stats(
@@ -603,6 +657,12 @@ class ScannerApp(ctk.CTk):
                 kind, payload = self.log_queue.get_nowait()
                 if kind == "log":
                     self._append_log(payload)
+                elif kind == "status":
+                    self.status_label.configure(text=payload)
+                elif kind == "mode_determinate":
+                    self.progress_bar.stop()
+                    self.progress_bar.configure(mode="determinate")
+                    self.progress_bar.set(0)
                 elif kind == "progress":
                     self.progress_bar.set(payload)
                 elif kind == "row":
@@ -619,7 +679,13 @@ class ScannerApp(ctk.CTk):
         self.scan_results = results
         self.is_scanning = False
         self.btn_scan.configure(state="normal", text="Mulai Scan Direktori")
+
+        # Pastikan progress bar tidak "nyangkut" di mode indeterminate
+        # (misalnya kalau scan gagal sebelum sempat berpindah mode).
+        self.progress_bar.stop()
+        self.progress_bar.configure(mode="determinate")
         self.progress_bar.set(1 if results else 0)
+        self.spinner_label.configure(text="")
 
         if results:
             self.status_label.configure(text=f"Selesai! Ditemukan {len(results)} project.")
