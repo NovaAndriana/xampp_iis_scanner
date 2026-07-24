@@ -67,11 +67,36 @@ Aplikasi desktop (Windows) berbasis Python + [CustomTkinter](https://github.com/
 
 ---
 
+## 📦 Build Menjadi Aplikasi Standalone (.exe)
+
+Kalau ingin dibagikan tanpa perlu install Python di komputer tujuan, aplikasi ini bisa di-build jadi `.exe` pakai PyInstaller.
+
+> ⚠️ Build **harus dijalankan di Windows** (bukan Linux/Mac), karena PyInstaller tidak melakukan cross-compile — `.exe` Windows hanya bisa dihasilkan saat script berjalan di Windows.
+
+**Cara build:**
+
+1. Pastikan `build_exe.py` ada di folder yang sama dengan `xampp_iis_scanner.py`.
+2. Jalankan salah satu:
+   ```bash
+   python build_exe.py
+   ```
+   atau cukup **double-click `build.bat`**.
+3. Script akan otomatis: cek/install dependensi (termasuk PyInstaller), mendeteksi lokasi folder `customtkinter`, lalu menjalankan PyInstaller dengan konfigurasi yang benar.
+4. Hasil build ada di:
+   ```
+   dist/XAMPP_IIS_Scanner/XAMPP_IIS_Scanner.exe
+   ```
+5. Untuk didistribusikan, salin **seluruh folder** `dist/XAMPP_IIS_Scanner/` (bukan cuma file `.exe`-nya) — folder ini berisi semua dependency yang dibutuhkan agar `.exe` bisa jalan tanpa Python terinstall.
+
+---
+
 ## 📁 Struktur Project
 
 ```
 .
 ├── xampp_iis_scanner.py   # Source code utama aplikasi
+├── build_exe.py           # Script otomatis untuk build ke .exe
+├── build.bat              # Wrapper (double-click untuk build di Windows)
 └── README.md              # Dokumentasi ini
 ```
 
